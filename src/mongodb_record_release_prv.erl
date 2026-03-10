@@ -72,7 +72,7 @@ build_mongodb_record_data_module(RecordList, HeaderPaths) ->
 generate_include_directives(HeaderPaths) ->
     HrlFiles = find_hrl_files(HeaderPaths),
     lists:foldl(fun(File, Acc) ->
-        Acc ++ "-include(\"" ++ filename:basename(File) ++ "\").\n"
+        Acc ++ "-include(\"" ++ File ++ "\").\n"
     end, "", HrlFiles).
 
 find_hrl_files(Paths) ->
