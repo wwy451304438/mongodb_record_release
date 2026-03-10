@@ -48,7 +48,15 @@ generate_mongodb_record_data(Records, OutputPath, HeaderPaths) ->
     RecordList = maps:to_list(Records),
     Content = build_mongodb_record_data_module(RecordList, HeaderPaths),
     FileName = filename:join(OutputPath, "mongodb_record_data.erl"),
-    file:write_file(FileName, Content).
+    %% 1. 首先确保文件所在的所有父目录都存在
+    case filelib:ensure_dir(FileName) of
+        ok ->
+            %% 2. 目录存在或已创建，现在可以安全地写入文件
+            file:write_file(FileName, Content);
+        {error, Reason} ->
+            %% 处理目录创建失败的情况
+            {error, {failed_to_create_dir, Reason}}
+    end.
 
 build_mongodb_record_data_module(RecordList, HeaderPaths) ->
     FieldsFun = build_get_fields_fun(RecordList),
