@@ -122,7 +122,7 @@ build_get_field_fun(RecordList) ->
     Clauses = lists:flatmap(fun({RecordName, Fields}) ->
         build_get_field_clauses(RecordName, Fields)
     end, RecordList),
-    InvalidIndexClause = "get_field(_, Index) when Index < 0 ->\n    {error, invalid_index}",
+    InvalidIndexClause = "get_field(_, Index) when Index < 1 ->\n    {error, invalid_index}",
     NotFoundClause = "get_field(_, _) ->\n    {error, not_found}",
     AllClauses = Clauses ++ [InvalidIndexClause, NotFoundClause],
     case AllClauses of
@@ -138,8 +138,8 @@ build_get_field_fun(RecordList) ->
 build_get_field_clauses(RecordName, Fields) ->
     AtomName = atom_to_list(RecordName),
     FieldCount = length(Fields),
-    ["get_field(" ++ AtomName ++ ", Index) when Index >= 0, Index < " ++ integer_to_list(FieldCount) ++ " ->\n" ++
-     "    lists:nth(Index + 1, get_fields(" ++ AtomName ++ "))"].
+    ["get_field(" ++ AtomName ++ ", Index) when Index >= 1, Index =< " ++ integer_to_list(FieldCount) ++ " ->\n" ++
+     "    lists:nth(Index, get_fields(" ++ AtomName ++ "))"].
 
 build_get_field_index_fun(RecordList) ->
     Clauses = lists:flatmap(fun({RecordName, Fields}) ->
