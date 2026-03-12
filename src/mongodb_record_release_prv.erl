@@ -116,7 +116,7 @@ build_get_fields_clause(RecordName, Fields) ->
     AtomName = atom_to_list(RecordName),
     FieldAtoms = [atom_to_list(F) || F <- Fields],
     "get_fields(" ++ AtomName ++ ") ->\n" ++
-    "    [" ++ string:join(FieldAtoms, ", ") ++ "]".
+    "    [" ++ AtomName ++ ", " ++ string:join(FieldAtoms, ", ") ++ "]".
 
 build_get_field_fun(RecordList) ->
     Clauses = lists:flatmap(fun({RecordName, Fields}) ->
@@ -139,7 +139,7 @@ build_get_field_clauses(RecordName, Fields) ->
     AtomName = atom_to_list(RecordName),
     FieldCount = length(Fields),
     ["get_field(" ++ AtomName ++ ", Index) when Index >= 1, Index =< " ++ integer_to_list(FieldCount) ++ " ->\n" ++
-     "    lists:nth(Index, get_fields(" ++ AtomName ++ "))"].
+     "    lists:nth(Index + 1, get_fields(" ++ AtomName ++ "))"].
 
 build_get_field_index_fun(RecordList) ->
     Clauses = lists:flatmap(fun({RecordName, Fields}) ->
@@ -160,7 +160,7 @@ build_get_field_index_fun(RecordList) ->
 build_get_field_index_clauses(RecordName, Fields) ->
     AtomName = atom_to_list(RecordName),
     ["get_field_index(" ++ AtomName ++ ", " ++ atom_to_list(Field) ++ ") ->\n" ++
-     "    " ++ integer_to_list(Index + 1) || {Field, Index} <- lists:zip(Fields, lists:seq(0, length(Fields) - 1))].
+     "    " ++ integer_to_list(Index + 2) || {Field, Index} <- lists:zip(Fields, lists:seq(0, length(Fields) - 1))].
 
 build_get_record_fun(RecordList) ->
     Clauses = [build_get_record_clause(RecordName, Fields) || {RecordName, Fields} <- RecordList],
