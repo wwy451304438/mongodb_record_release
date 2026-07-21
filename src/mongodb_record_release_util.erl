@@ -2,8 +2,10 @@
 
 -export([
     init/1,
+    init/2,
     parse_file/1,
     parse_files/1,
+    find_hrl_files/1,
     get_fields/1,
     get_field/2,
     get_field_index/2,
@@ -13,12 +15,17 @@
 -define(DEFAULT_HEADER_PATHS, ["include"]).
 
 init(Paths) ->
+    init(Paths, []).
+
+init(Paths, Macros) ->
     DefaultPaths = ?DEFAULT_HEADER_PATHS,
     AllPaths = case Paths of
         undefined -> DefaultPaths;
         [] -> DefaultPaths;
         _ -> Paths
     end,
+    put(include_paths, AllPaths),
+    put(macros, Macros),
     HrlFiles = find_hrl_files(AllPaths),
     io:format("HrlFiles: ~p~n", [HrlFiles]),
     case parse_files(HrlFiles) of
@@ -36,9 +43,14 @@ parse_file(File) ->
             % 读取文件内容并添加终止符
             % ContentStr = binary_to_list(Content) ++ "\n",
             % 使用 epp 解析文件，这是处理 Erlang 预处理指令的正确方式
-            case epp:parse_file(File, [], []) of
+            IncludePaths = case get(include_paths) of
+                undefined -> [filename:dirname(File)];
+                Paths -> lists:usort([filename:dirname(File) | Paths])
+            end,
+            Macros = case get(macros) of undefined -> []; Value -> Value end,
+            case epp:parse_file(File, IncludePaths, Macros) of
                 {ok, Forms} ->
-                    extract_records_from_forms(Forms);
+                    extract_records_from_forms(Forms, File);
                 {error, Reason} ->
                     {error, Reason}
             end;
@@ -55,26 +67,36 @@ parse_files([], Acc) ->
 parse_files([File | Rest], Acc) ->
     case parse_file(File) of
         {ok, Records} ->
-            NewAcc = maps:merge(Acc, Records),
-            parse_files(Rest, NewAcc);
+            DuplicateNames = lists:sort([Name || Name <- maps:keys(Records), maps:is_key(Name, Acc)]),
+            case DuplicateNames of
+                [] -> parse_files(Rest, maps:merge(Acc, Records));
+                _ -> {error, {duplicate_records, DuplicateNames, File}}
+            end;
         Error ->
             Error
     end.
 
-extract_records_from_forms(Forms) ->
-    extract_records_from_forms(Forms, #{}).
+extract_records_from_forms(Forms, File) ->
+    TargetFile = filename:absname(File),
+    extract_records_from_forms(Forms, TargetFile, TargetFile, #{}).
 
-extract_records_from_forms([], Acc) ->
+extract_records_from_forms([], _TargetFile, _CurrentFile, Acc) ->
     {ok, Acc};
-extract_records_from_forms([Form | Rest], Acc) ->
-    NewAcc = case Form of
-        {attribute, _, record, {RecordName, Fields}} ->
+extract_records_from_forms([{attribute, _, file, {SourceFile, _}} | Rest],
+                           TargetFile, _CurrentFile, Acc) ->
+    extract_records_from_forms(Rest, TargetFile, filename:absname(SourceFile), Acc);
+extract_records_from_forms([{attribute, _, record, {RecordName, Fields}} | Rest],
+                           TargetFile, TargetFile, Acc) ->
+    case maps:is_key(RecordName, Acc) of
+        true ->
+            {error, {duplicate_record, RecordName, TargetFile}};
+        false ->
             FieldNames = extract_field_names(Fields),
-            maps:put(RecordName, FieldNames, Acc);
-        _ ->
-            Acc
-    end,
-    extract_records_from_forms(Rest, NewAcc).
+            extract_records_from_forms(Rest, TargetFile, TargetFile,
+                                       maps:put(RecordName, FieldNames, Acc))
+    end;
+extract_records_from_forms([_Form | Rest], TargetFile, CurrentFile, Acc) ->
+    extract_records_from_forms(Rest, TargetFile, CurrentFile, Acc).
 
 extract_field_names(Fields) ->
     extract_field_names(Fields, []).
@@ -110,17 +132,17 @@ get_fields(RecordName) ->
             end
     end.
 
--spec get_field(atom(), non_neg_integer()) -> atom() | {error, not_found}.
-get_field(RecordName, Index) when Index >= 0 ->
+-spec get_field(atom(), pos_integer()) -> atom() | {error, not_found | invalid_index}.
+get_field(RecordName, Index) when Index >= 2 ->
     case get_fields(RecordName) of
         {error, not_found} ->
             {error, not_found};
-        Fields when Index < length(Fields) ->
-            lists:nth(Index + 1, Fields);
+        Fields when Index =< length(Fields) + 1 ->
+            lists:nth(Index - 1, Fields);
         _ ->
             {error, invalid_index}
     end;
-get_field(_RecordName, Index) when Index < 0 ->
+get_field(_RecordName, Index) when Index < 2 ->
     {error, invalid_index}.
 
 -spec get_field_index(atom(), atom()) -> non_neg_integer() | {error, not_found}.
@@ -131,7 +153,7 @@ get_field_index(RecordName, FieldName) ->
         Fields ->
             case lists:member(FieldName, Fields) of
                 true ->
-                    find_index(FieldName, Fields, 0);
+                    find_index(FieldName, Fields, 2);
                 false ->
                     {error, not_found}
             end
@@ -157,17 +179,7 @@ get_record(RecordName) ->
     end.
 
 find_hrl_files(Paths) ->
-    find_hrl_files(Paths, []).
-
-find_hrl_files([], Acc) ->
-    Acc;
-find_hrl_files([Path | Rest], Acc) ->
-    case file:list_dir(Path) of
-        {ok, Files} ->
-            HrlFiles = [filename:join(Path, File) || 
-                        File <- Files, 
-                        filename:extension(File) =:= ".hrl"],
-            find_hrl_files(Rest, Acc ++ HrlFiles);
-        {error, _} ->
-            find_hrl_files(Rest, Acc)
-    end.
+    lists:usort(lists:append([
+        filelib:wildcard(filename:join(Path, "*.hrl")) ++
+        filelib:wildcard(filename:join([Path, "**", "*.hrl"])) || Path <- Paths
+    ])).
